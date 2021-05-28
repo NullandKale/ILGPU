@@ -259,13 +259,6 @@ namespace ILGPU
                 TransformerConfiguration.Transformed,
                 Properties.InliningMode);
 
-            // Initialize the default CPU device
-            CPUAccelerator = new CPUAccelerator(
-                this,
-                CPUDevice.Implicit,
-                CPUAcceleratorMode.Parallel,
-                ThreadPriority.Lowest);
-
             // Initialize all devices
             Devices = devices;
             if (devices.IsDefaultOrEmpty)
@@ -290,11 +283,6 @@ namespace ILGPU
         #endregion
 
         #region Properties
-
-        /// <summary>
-        /// The "default" CPU accelerator used for all implicitly allocated CPU buffers.
-        /// </summary>
-        internal CPUAccelerator CPUAccelerator { get; }
 
         /// <summary>
         /// Returns the current instance id.
@@ -402,8 +390,19 @@ namespace ILGPU
         /// </summary>
         /// <param name="preferCPU">Always returns CPU device 0.</param>
         /// <returns>Selected device.</returns>
-        public Device GetPreferredDevice(bool preferCPU) =>
-            GetPreferredDevices(preferCPU, matchingDevicesOnly: false).First();
+        public Device GetPreferredDevice(bool preferCPU)
+        {
+            if (preferCPU)
+            {
+                return GetDevice<CPUDevice>(0);
+            }
+
+            var sorted = Devices
+                .OrderByDescending(d => d.MemorySize)
+                .Where(d => d.AcceleratorType != AcceleratorType.CPU);
+
+            return sorted.FirstOrDefault() ?? GetDevice<CPUDevice>(0);
+        }
 
         /// <summary>
         /// Attempts to return the most optimal set of devices.
@@ -411,9 +410,7 @@ namespace ILGPU
         /// <param name="preferCPU">Always returns first CPU device.</param>
         /// <param name="matchingDevicesOnly">Only returns matching devices.</param>
         /// <returns>Selected devices.</returns>
-        public IEnumerable<Device> GetPreferredDevices(
-            bool preferCPU,
-            bool matchingDevicesOnly)
+        public IEnumerable<Device> GetPreferredDevices(bool preferCPU, bool matchingDevicesOnly)
         {
             if (preferCPU)
             {
@@ -432,6 +429,7 @@ namespace ILGPU
                 if (matchingDevicesOnly)
                 {
                     Device toMatch = sorted.First();
+
                     return sorted.Where(
                         d =>
                         d.AcceleratorType == toMatch.AcceleratorType &&
@@ -546,8 +544,6 @@ namespace ILGPU
         {
             if (disposing)
             {
-                CPUAccelerator.Dispose();
-
                 codeGenerationSemaphore.Dispose();
                 IRContext.Dispose();
 
