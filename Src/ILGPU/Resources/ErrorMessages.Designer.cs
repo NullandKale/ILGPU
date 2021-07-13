@@ -196,7 +196,7 @@ namespace ILGPU.Resources {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to An entry point must receive a compatible index type as first parameter.
+        ///   Looks up a localized string similar to An Implicitly grouped entry point must receive a index type as first parameter, LongIndecies will not work.
         /// </summary>
         internal static string InvalidEntryPointIndexParameterOfWrongType {
             get {
