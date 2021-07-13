@@ -15,7 +15,6 @@ using ILGPU.Resources;
 using ILGPU.Util;
 using System;
 using System.Diagnostics;
-using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Threading;
 
@@ -107,17 +106,6 @@ namespace ILGPU.Runtime
         private readonly object syncRoot = new object();
 
         /// <summary>
-        /// The default memory cache for operations that require additional
-        /// temporary memory.
-        /// </summary>
-        [SuppressMessage(
-            "Usage",
-            "CA2213:Disposable fields should be disposed",
-            Justification = "Will be automatically disposed")]
-        [DebuggerBrowsable(DebuggerBrowsableState.Never)]
-        private readonly MemoryBufferCache memoryCache;
-
-        /// <summary>
         /// The current volatile native pointer of this instance.
         /// </summary>
         [DebuggerBrowsable(DebuggerBrowsableState.Never)]
@@ -140,8 +128,6 @@ namespace ILGPU.Runtime
             InitKernelCache();
             InitLaunchCache();
             InitGC();
-
-            memoryCache = new MemoryBufferCache(this);
         }
 
         #endregion
@@ -191,12 +177,6 @@ namespace ILGPU.Runtime
         /// Returns the primary backend of this accelerator.
         /// </summary>
         internal Backend Backend { get; private set; }
-
-        /// <summary>
-        /// Returns the default memory-buffer cache that can be used by several
-        /// operations.
-        /// </summary>
-        public MemoryBufferCache MemoryCache => memoryCache;
 
         #endregion
 
@@ -795,6 +775,9 @@ namespace ILGPU.Runtime
             long numElements)
             where T : unmanaged
         {
+            if (numElements < 0L)
+                throw new ArgumentOutOfRangeException(nameof(numElements));
+
             EnsureBlittable<T>();
             return CreatePageLockFromPinnedInternal<T>(pinned, numElements);
         }
@@ -811,6 +794,9 @@ namespace ILGPU.Runtime
         public unsafe PageLockScope<T> CreatePageLockFromPinned<T>(T[] pinned)
             where T : unmanaged
         {
+            if (pinned is null)
+                throw new ArgumentNullException(nameof(pinned));
+
             // The array is already pinned - "fixing" it to obtain the memory address.
             fixed (T* ptr = pinned)
             {
