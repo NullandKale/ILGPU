@@ -1,10 +1,21 @@
 # ILGPU
+[![CI](https://github.com/m4rs-mt/ILGPU/actions/workflows/ci.yml/badge.svg?style=flat&branch=master&event=push)](https://github.com/m4rs-mt/ILGPU/actions/workflows/ci.yml?query=branch%3Amaster+event%3Apush)
+[![](https://img.shields.io/nuget/v/ilgpu?style=flat&label=release)](https://www.nuget.org/packages/ilgpu/latest)
+[![](https://img.shields.io/nuget/vpre/ilgpu?style=flat&label=pre-release)](https://www.nuget.org/packages/ilgpu/absoluteLatest)
+[![](https://img.shields.io/feedz/vpre/ilgpu/preview/ilgpu?style=flat&color=blue&label=preview)](#preview-versions)
 
 ILGPU is a JIT (just-in-time) compiler for high-performance GPU programs written in .Net-based languages.
 ILGPU is entirely written in C# without any native dependencies.
 It offers the flexibility and the convenience of C++ AMP on the one hand and the high performance of Cuda programs on the other hand.
 Functions in the scope of kernels do not have to be annotated (default C# functions) and are allowed to work on value types.
 All kernels (including all hardware features like shared memory and atomics) can be executed and debugged on the CPU using the integrated multi-threaded CPU accelerator.
+
+# ILGPU.Algorithms
+
+Real-world applications typically require a standard library and a set of standard algorithms that "simply work".
+The ILGPU Algorithms library meets these requirements by offering a set of auxiliary functions and high-level algorithms (e.g. sorting or prefix sum).
+All algorithms can be run on all supported accelerator types.
+The CPU accelerator support is especially useful for kernel debugging.
 
 # Build Instructions
 
@@ -30,6 +41,17 @@ execute the Cuda test cases.
 * ILGPU Documentation (http://www.ilgpu.net/Documentation)
 * Nuget (https://www.nuget.org/packages/ILGPU)
 * Release Notes (http://www.ilgpu.net/ReleaseVersions)
+
+# Preview versions
+Preview/Daily builds are distributed using https://feedz.io/. To pull preview versions into your project, use the following NuGet.config file:
+~~~xml
+<?xml version="1.0" encoding="utf-8"?>
+<configuration>
+  <packageSources>
+    <add key="ilgpu" value="https://f.feedz.io/ilgpu/preview/nuget/index.json" />
+  </packageSources>
+</configuration>
+~~~
 
 # General Contribution Guidelines
 

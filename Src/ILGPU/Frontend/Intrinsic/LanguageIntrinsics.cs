@@ -63,10 +63,8 @@ namespace ILGPU.Frontend.Intrinsic
         /// <returns>The resulting value.</returns>
         private static ValueReference HandleLanguageOperation(
             ref InvocationContext context,
-            LanguageIntrinsicAttribute attribute)
-        {
-            var builder = context.Builder;
-            return attribute.IntrinsicKind switch
+            LanguageIntrinsicAttribute attribute) =>
+            attribute.IntrinsicKind switch
             {
                 LanguageIntrinsicKind.EmitPTX =>
                     CreateLanguageEmitPTX(ref context),
@@ -74,7 +72,6 @@ namespace ILGPU.Frontend.Intrinsic
                     ErrorMessages.NotSupportedLanguageIntrinsic,
                     attribute.IntrinsicKind.ToString()),
             };
-        }
 
         /// <summary>
         /// Creates a new inline PTX instruction.
@@ -179,11 +176,11 @@ namespace ILGPU.Frontend.Intrinsic
 
             foreach (var part in parts)
             {
-                if (part == "%%")
+                if (part.Equals("%%", StringComparison.Ordinal))
                 {
                     result.Add(new FormatExpression("%"));
                 }
-                else if (part.StartsWith("%"))
+                else if (part.StartsWith("%", StringComparison.Ordinal))
                 {
                     // Check whether the argument can be resolved to an integer.
                     if (int.TryParse(part.Substring(1), out int argument))
