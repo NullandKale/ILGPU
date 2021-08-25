@@ -53,63 +53,59 @@ namespace AlgorithmsTransform
     {
         static void Main()
         {
-            using (var context = new Context())
+            // Create default context and enable algorithms library
+            using var context = Context.Create(builder => builder.Default().EnableAlgorithms());
+            // For each available accelerator...
+            foreach (var device in context)
             {
-                // Enable algorithms library
-                context.EnableAlgorithms();
+                using var accelerator = device.CreateAccelerator(context);
+                Console.WriteLine($"Performing operations on {accelerator}");
 
-                // For each available accelerator...
-                foreach (var acceleratorId in Accelerator.Accelerators)
+                var sourceBuffer = accelerator.Allocate1D<int>(64);
+                accelerator.Initialize(accelerator.DefaultStream, sourceBuffer.View, 2);
+
+                using (var targetBuffer = accelerator.Allocate1D<CustomStruct>(64))
                 {
-                    using (var accelerator = Accelerator.Create(context, acceleratorId))
-                    {
-                        Console.WriteLine($"Performing operations on {accelerator}");
+                    // Transforms all elements.
+                    accelerator.Transform(
+                        accelerator.DefaultStream,
+                        sourceBuffer.View,
+                        targetBuffer.View,
+                        new IntToCustomStructTransformer());
 
-                        var sourceBuffer = accelerator.Allocate<int>(64);
-                        accelerator.Initialize(accelerator.DefaultStream, sourceBuffer.View, 2);
-
-                        using (var targetBuffer = accelerator.Allocate<CustomStruct>(64))
-                        {
-                            // Transforms all elements.
-                            accelerator.Transform(
-                                accelerator.DefaultStream,
-                                sourceBuffer.View,
-                                targetBuffer.View,
-                                new IntToCustomStructTransformer());
-
-                            accelerator.Synchronize();
-
-                            var data = targetBuffer.GetAsArray();
-                            for (int i = 0, e = data.Length; i < e; ++i)
-                                Console.WriteLine($"Data[{i}] = {data[i]}");
-                        }
-
-                        using (var targetBuffer = accelerator.Allocate<CustomStruct>(64))
-                        {
-                            // Calling the convenient Transform function on the accelerator
-                            // involves internal heap allocations. This can be avoided by constructing
-                            // a transformer explicitly:
-                            var transformer = accelerator.CreateTransformer<int, CustomStruct, IntToCustomStructTransformer>();
-
-                            // We can now use the transformer without any further heap allocations
-                            // during the invocation. Note that the transformer requires an explicit
-                            // accelerator stream.
-                            transformer(
-                                accelerator.DefaultStream,
-                                sourceBuffer.View,
-                                targetBuffer.View,
-                                new IntToCustomStructTransformer());
-
-                            accelerator.Synchronize();
-
-                            var data = targetBuffer.GetAsArray();
-                            for (int i = 0, e = data.Length; i < e; ++i)
-                                Console.WriteLine($"Data[{i}] = {data[i]}");
-                        }
-
-                        sourceBuffer.Dispose();
-                    }
+                    // Reads data from the GPU buffer into a new CPU array.
+                    // Implicitly calls accelerator.DefaultStream.Synchronize() to ensure
+                    // that the kernel and memory copy are completed first.
+                    var data = targetBuffer.GetAsArray1D();
+                    for (int i = 0, e = data.Length; i < e; ++i)
+                        Console.WriteLine($"Data[{i}] = {data[i]}");
                 }
+
+                using (var targetBuffer = accelerator.Allocate1D<CustomStruct>(64))
+                {
+                    // Calling the convenient Transform function on the accelerator
+                    // involves internal heap allocations. This can be avoided by constructing
+                    // a transformer explicitly:
+                    var transformer = accelerator.CreateTransformer<int, CustomStruct, IntToCustomStructTransformer>();
+
+                    // We can now use the transformer without any further heap allocations
+                    // during the invocation. Note that the transformer requires an explicit
+                    // accelerator stream.
+                    transformer(
+                        accelerator.DefaultStream,
+                        sourceBuffer.View,
+                        targetBuffer.View,
+                        new IntToCustomStructTransformer());
+
+                    // Reads data from the GPU buffer into a new CPU array.
+                    // Implicitly calls accelerator.DefaultStream.Synchronize() to ensure
+                    // that the kernel and memory copy are completed first.
+                    var data = targetBuffer.GetAsArray1D();
+                    for (int i = 0, e = data.Length; i < e; ++i)
+                        Console.WriteLine($"Data[{i}] = {data[i]}");
+                }
+
+                sourceBuffer.Dispose();
             }
         }
     }

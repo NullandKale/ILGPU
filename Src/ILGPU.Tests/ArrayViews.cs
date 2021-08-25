@@ -230,6 +230,118 @@ namespace ILGPU.Tests
             Verify(buffer.View, expected);
         }
 
+        [Fact]
+        public void ArrayViewZeroLengthSubView1D()
+        {
+            using var buffer = Accelerator.Allocate1D<int>(128);
+
+            // Take a zero-length subview of a non-zero length view
+            var subView1 = buffer.View.SubView(64, 0);
+            Assert.Equal(0, subView1.Length);
+            Assert.Equal(0, subView1.LengthInBytes);
+            Assert.Equal(0, subView1.Extent.X);
+
+            var subView2 = buffer.View.AsGeneral().SubView(64, 0);
+            Assert.Equal(0, subView2.Length);
+            Assert.Equal(0, subView2.LengthInBytes);
+            Assert.Equal(0, subView2.Extent.X);
+
+            // Take a zero-length subview of a zero length view
+            var subView3 = subView1.SubView(0, 0);
+            Assert.Equal(0, subView3.Length);
+            Assert.Equal(0, subView3.LengthInBytes);
+            Assert.Equal(0, subView3.Extent.X);
+
+            var subView4 = subView2.SubView(0, 0);
+            Assert.Equal(0, subView4.Length);
+            Assert.Equal(0, subView4.LengthInBytes);
+            Assert.Equal(0, subView4.Extent.X);
+
+        }
+
+        [Fact]
+        public void ArrayViewZeroLengthSubView2D()
+        {
+            void Check<TStride>(ArrayView2D<int, TStride> view)
+                where TStride : struct, IStride2D
+            {
+                var extents = new[]
+                {
+                    new Index2D(0, 2),
+                    new Index2D(2, 0),
+                };
+
+                foreach (var extent in extents)
+                {
+                    // A subview with a zero in one extent dimension, of a view
+                    // with non-zero extent in every dimension.
+                    var subView = view.SubView((4, 4), extent);
+                    Assert.Equal(0, subView.Length);
+                    Assert.Equal(0, subView.LengthInBytes);
+                    Assert.Equal(extent.X, subView.Extent.X);
+                    Assert.Equal(extent.Y, subView.Extent.Y);
+
+                    // A subview with a zero in one extent dimension, of a view
+                    // with zero extent in the same dimension.
+                    var subView2 = subView.SubView((0, 0), extent);
+                    Assert.Equal(0, subView2.Length);
+                    Assert.Equal(0, subView2.LengthInBytes);
+                    Assert.Equal(extent.X, subView2.Extent.X);
+                    Assert.Equal(extent.Y, subView2.Extent.Y);
+                }
+            }
+
+            using var buff1 = Accelerator.Allocate2DDenseY<int>((10, 10));
+            using var buff2 = Accelerator.Allocate2DDenseX<int>((10, 10));
+            Check<Stride2D.DenseY>(buff1.View);
+            Check<Stride2D.General>(buff1.View.AsGeneral());
+            Check<Stride2D.DenseX>(buff2.View);
+            Check<Stride2D.General>(buff2.View.AsGeneral());
+        }
+
+        [Fact]
+        public void ArrayViewZeroLengthSubView3D()
+        {
+            void Check<TStride>(ArrayView3D<int, TStride> view)
+                where TStride : struct, IStride3D
+            {
+                var extents = new[]
+                {
+                    new Index3D(0, 2, 2),
+                    new Index3D(2, 0, 2),
+                    new Index3D(2, 2, 0),
+                };
+
+                foreach (var extent in extents)
+                {
+                    // A subview with a zero in one extent dimension, of a view
+                    // with non-zero extent in every dimension.
+                    var subView = view.SubView((4, 4, 4), extent);
+                    Assert.Equal(0, subView.Length);
+                    Assert.Equal(0, subView.LengthInBytes);
+                    Assert.Equal(extent.X, subView.Extent.X);
+                    Assert.Equal(extent.Y, subView.Extent.Y);
+                    Assert.Equal(extent.Z, subView.Extent.Z);
+
+                    // A subview with a zero in one extent dimension, of a view
+                    // with zero extent in the same dimension.
+                    var subView2 = subView.SubView((0, 0, 0), extent);
+                    Assert.Equal(0, subView2.Length);
+                    Assert.Equal(0, subView2.LengthInBytes);
+                    Assert.Equal(extent.X, subView2.Extent.X);
+                    Assert.Equal(extent.Y, subView2.Extent.Y);
+                    Assert.Equal(extent.Z, subView2.Extent.Z);
+                }
+            }
+
+            using var buff1 = Accelerator.Allocate3DDenseXY<int>((10, 10, 10));
+            using var buff2 = Accelerator.Allocate3DDenseZY<int>((10, 10, 10));
+            Check<Stride3D.DenseXY>(buff1.View);
+            Check<Stride3D.General>(buff1.View.AsGeneral());
+            Check<Stride3D.DenseZY>(buff2.View);
+            Check<Stride3D.General>(buff2.View.AsGeneral());
+        }
+
         internal static void ArrayViewGetSubViewKernel(
             Index1D index,
             ArrayView1D<int, Stride1D.Dense> data,
@@ -818,9 +930,7 @@ namespace ILGPU.Tests
             Assert.Equal(linearLength * 2 - 1, oneDView3.Length);
 
             // Verify 2D views
-            var twoDView = oneDView.As2DView(
-                new LongIndex2D(length1, length2),
-                new Stride2D.DenseX(length1));
+            var twoDView = oneDView.As2DDenseXView(new LongIndex2D(length1, length2));
             Assert.Equal(length1 * length2, twoDView.Length);
             Assert.Equal(length1, twoDView.Extent.X);
             Assert.Equal(length2, twoDView.Extent.Y);
@@ -845,9 +955,7 @@ namespace ILGPU.Tests
             Assert.Equal(length1 * length2, oneD2DView.Extent.Size);
             Assert.Equal(length1 * length2, oneD2DView.Length);
 
-            var twoDViewY = oneD2DView.As2DView(
-                new LongIndex2D(length1, length2),
-                new Stride2D.DenseY(length2));
+            var twoDViewY = oneD2DView.As2DDenseYView(new LongIndex2D(length1, length2));
             Assert.Equal(length1 * length2, twoDViewY.Length);
             Assert.Equal(length1, twoDViewY.Extent.X);
             Assert.Equal(length2, twoDViewY.Extent.Y);
@@ -866,9 +974,8 @@ namespace ILGPU.Tests
                 twoDView.Extent);
 
             // Verify 3D views
-            var threeDView = oneDView.As3DView(
-                new LongIndex3D(length1, length2, length3),
-                new Stride3D.DenseXY(length1, length1 * length2));
+            var threeDView = oneDView.As3DDenseXYView(
+                new LongIndex3D(length1, length2, length3));
             Assert.Equal(length1 * length2 * length3, threeDView.Length);
             Assert.Equal(length1, threeDView.Extent.X);
             Assert.Equal(length2, threeDView.Extent.Y);
@@ -895,9 +1002,8 @@ namespace ILGPU.Tests
             Assert.Equal(length1 * length2 * length3, oneD3DView.Extent.Size);
             Assert.Equal(1, oneD3DView.Stride.XStride);
 
-            var threeDViewZ = oneD3DView.As3DView(
-                new LongIndex3D(length3, length2, length1),
-                new Stride3D.DenseZY(length2 * length1, length2));
+            var threeDViewZ = oneD3DView.As3DDenseZYView(
+                new LongIndex3D(length3, length2, length1));
             Assert.Equal(length1 * length2 * length3, threeDViewZ.Length);
             Assert.Equal(length3, threeDViewZ.Extent.X);
             Assert.Equal(length2, threeDViewZ.Extent.Y);

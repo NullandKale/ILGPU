@@ -70,33 +70,29 @@ namespace GroupGridIndices
         static void Main()
         {
             // Create main context
-            using (var context = new Context())
+            using var context = Context.CreateDefault();
+
+            // For each available device...
+            foreach (var device in context)
             {
-                // For each available accelerator...
-                foreach (var acceleratorId in Accelerator.Accelerators)
-                {
-                    // Create default accelerator for the given accelerator id
-                    using (var accelerator = Accelerator.Create(context, acceleratorId))
-                    {
-                        Console.WriteLine($"Performing operations on {accelerator}");
+                // Create accelerator for the given device
+                using var accelerator = device.CreateAccelerator(context);
+                Console.WriteLine($"Performing operations on {accelerator}");
 
-                        var groupSize = accelerator.MaxNumThreadsPerGroup;
-                        KernelConfig kernelConfig = (2, groupSize);
+                var groupSize = accelerator.MaxNumThreadsPerGroup;
+                KernelConfig kernelConfig = (2, groupSize);
 
-                        using (var buffer = accelerator.Allocate<int>(kernelConfig.Size))
-                        {
-                            var groupedKernel = accelerator.LoadStreamKernel<ArrayView<int>, int>(GroupedKernel);
-                            groupedKernel(kernelConfig, buffer.View, 64);
+                using var buffer = accelerator.Allocate1D<int>(kernelConfig.Size);
+                var groupedKernel = accelerator.LoadStreamKernel<ArrayView<int>, int>(GroupedKernel);
+                groupedKernel(kernelConfig, buffer.View, 64);
 
-                            accelerator.Synchronize();
-
-                            Console.WriteLine("Default grouped kernel");
-                            var data = buffer.GetAsArray();
-                            for (int i = 0, e = data.Length; i < e; ++i)
-                                Console.WriteLine($"Data[{i}] = {data[i]}");
-                        }
-                    }
-                }
+                // Reads data from the GPU buffer into a new CPU array.
+                // Implicitly calls accelerator.DefaultStream.Synchronize() to ensure
+                // that the kernel and memory copy are completed first.
+                Console.WriteLine("Default grouped kernel");
+                var data = buffer.GetAsArray1D();
+                for (int i = 0, e = data.Length; i < e; ++i)
+                    Console.WriteLine($"Data[{i}] = {data[i]}");
             }
         }
     }

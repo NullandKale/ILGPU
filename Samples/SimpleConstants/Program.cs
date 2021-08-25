@@ -49,7 +49,7 @@ namespace SimpleConstants
         /// <param name="index">The current thread index.</param>
         /// <param name="dataView">The view pointing to our memory buffer.</param>
         static void ConstantKernel(
-            Index1 index,
+            Index1D index,
             ArrayView<int> dataView)
         {
             dataView[index] = ConstantValue;
@@ -61,7 +61,7 @@ namespace SimpleConstants
         /// <param name="index">The current thread index.</param>
         /// <param name="dataView">The view pointing to our memory buffer.</param>
         static void StaticFieldAccessKernel(
-            Index1 index,
+            Index1D index,
             ArrayView<int> dataView)
         {
             dataView[index] = ReadOnlyValue;
@@ -78,7 +78,7 @@ namespace SimpleConstants
         /// <param name="index">The current thread index.</param>
         /// <param name="dataView">The view pointing to our memory buffer.</param>
         static void StaticNonReadOnlyFieldAccessKernel(
-            Index1 index,
+            Index1D index,
             ArrayView<int> dataView)
         {
             dataView[index] = WriteEnabledValue;
@@ -95,7 +95,7 @@ namespace SimpleConstants
         /// <param name="index">The current thread index.</param>
         /// <param name="dataView">The view pointing to our memory buffer.</param>
         static void StaticFieldWriteAccessKernel(
-            Index1 index,
+            Index1D index,
             ArrayView<int> dataView)
         {
             WriteEnabledValue = index;
@@ -103,23 +103,21 @@ namespace SimpleConstants
 
         static void LaunchKernel(
             Accelerator accelerator,
-            Action<Index1, ArrayView<int>> method,
+            Action<Index1D, ArrayView<int>> method,
             int? expectedValue)
         {
             var kernel = accelerator.LoadAutoGroupedStreamKernel(method);
-            using (var buffer = accelerator.Allocate<int>(1024))
+            using var buffer = accelerator.Allocate1D<int>(1024);
+            kernel((int)buffer.Length, buffer.View);
+
+            if (expectedValue.HasValue)
             {
-                kernel(buffer.Length, buffer.View);
-
-                // Wait for the kernel to finish...
-                accelerator.Synchronize();
-
-                if (expectedValue.HasValue)
-                {
-                    var data = buffer.GetAsArray();
-                    for (int i = 0, e = data.Length; i < e; ++i)
-                        Debug.Assert(data[i] == expectedValue);
-                }
+                // Reads data from the GPU buffer into a new CPU array.
+                // Implicitly calls accelerator.DefaultStream.Synchronize() to ensure
+                // that the kernel and memory copy are completed first.
+                var data = buffer.GetAsArray1D();
+                for (int i = 0, e = data.Length; i < e; ++i)
+                    Debug.Assert(data[i] == expectedValue);
             }
         }
 
@@ -130,54 +128,55 @@ namespace SimpleConstants
         {
             // All kernels reject read accesses to write-enabled static fields by default.
             // However, you can disable this restriction via:
-            // ContextFlags.InlineMutableStaticFieldValues.
+            // StaticFields(StaticFieldMode.MutableStaticFields).
 
             // All kernels reject write accesses to static fields by default.
             // However, you can skip such assignments by via:
-            // ContextFlags.IgnoreStaticFieldStores.
+            // StaticFields(StaticFieldMode.IgnoreStaticFieldStores).
 
             // Create main context
-            using (var context = new Context(
-                ContextFlags.InlineMutableStaticFieldValues |
-                ContextFlags.IgnoreStaticFieldStores))
+            using var context = Context.Create(builder =>
+                builder.Default()
+                .StaticFields(StaticFieldMode.MutableStaticFields | StaticFieldMode.IgnoreStaticFieldStores));
+
+            // For each available device...
+            foreach (var device in context)
             {
-                // For each available accelerator...
-                foreach (var acceleratorId in Accelerator.Accelerators)
-                {
-                    // Create default accelerator for the given accelerator id
-                    using (var accelerator = Accelerator.Create(context, acceleratorId))
-                    {
-                        Console.WriteLine($"Performing operations on {accelerator}");
+                // Create accelerator for the given device
+                using var accelerator = device.CreateAccelerator(context);
+                Console.WriteLine($"Performing operations on {accelerator}");
 
-                        // Launch ConstantKernel:
-                        LaunchKernel(
-                            accelerator,
-                            ConstantKernel,
-                            ConstantValue);
+                // Launch ConstantKernel:
+                LaunchKernel(
+                    accelerator,
+                    ConstantKernel,
+                    ConstantValue);
 
-                        // Launch StaticFieldAccessKernel:
-                        LaunchKernel(
-                            accelerator,
-                            StaticFieldAccessKernel,
-                            ReadOnlyValue);
+                // Launch StaticFieldAccessKernel:
+                LaunchKernel(
+                    accelerator,
+                    StaticFieldAccessKernel,
+                    ReadOnlyValue);
 
-                        // Launch StaticNonReadOnlyFieldAccessKernel while inlining static field values:
-                        WriteEnabledValue = DefaultWriteEnabledValue;
-                        LaunchKernel(
-                            accelerator,
-                            StaticNonReadOnlyFieldAccessKernel,
-                            DefaultWriteEnabledValue);
-                        // Note that a change of the field WriteEnabledValue will not change the result
-                        // of a previously compiled kernel that accessed the field WriteEnabledValue.
+                // Launch StaticNonReadOnlyFieldAccessKernel while inlining static field values:
+                WriteEnabledValue = DefaultWriteEnabledValue;
+                LaunchKernel(
+                    accelerator,
+                    StaticNonReadOnlyFieldAccessKernel,
+                    DefaultWriteEnabledValue);
+                // Note that a change of the field WriteEnabledValue will not change the result
+                // of a previously compiled kernel that accessed the field WriteEnabledValue.
 
-                        // Launch StaticFieldWriteAccessKernel while ignoring static stores:
-                        // Note that the CPU accelerator will write to static field during execution!
-                        LaunchKernel(
-                            accelerator,
-                            StaticFieldWriteAccessKernel,
-                            null);
-                    }
-                }
+                // Launch StaticFieldWriteAccessKernel while ignoring static stores:
+                // Note that the CPU accelerator will write to static field during execution!
+                LaunchKernel(
+                    accelerator,
+                    StaticFieldWriteAccessKernel,
+                    null);
+
+                // Wait for the kernels to finish before the accelerator is disposed
+                // at the end of this block.
+                accelerator.Synchronize();
             }
         }
     }

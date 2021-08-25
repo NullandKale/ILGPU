@@ -93,48 +93,49 @@ namespace WarpShuffle
         static void Main()
         {
             // Create main context
-            using (var context = new Context())
+            using var context = Context.CreateDefault();
+
+            // For each available device...
+            foreach (var device in context)
             {
-                // For each available accelerator...
-                foreach (var acceleratorId in Accelerator.Accelerators)
+                // Create accelerator for the given device
+                using var accelerator = device.CreateAccelerator(context);
+                Console.WriteLine($"Performing operations on {accelerator}");
+
+                KernelConfig dimension = (1, accelerator.WarpSize);
+                using (var dataTarget = accelerator.Allocate1D<int>(accelerator.WarpSize))
                 {
-                    // Create default accelerator for the given accelerator id
-                    using (var accelerator = Accelerator.Create(context, acceleratorId))
-                    {
-                        Console.WriteLine($"Performing operations on {accelerator}");
+                    // Load the explicitly grouped kernel
+                    var shuffleDownKernel = accelerator.LoadStreamKernel<ArrayView<int>>(ShuffleDownKernel);
+                    dataTarget.MemSetToZero();
 
-                        KernelConfig dimension = (1, accelerator.WarpSize);
-                        using (var dataTarget = accelerator.Allocate<int>(accelerator.WarpSize))
-                        {
-                            // Load the explicitly grouped kernel
-                            var shuffleDownKernel = accelerator.LoadStreamKernel<ArrayView<int>>(ShuffleDownKernel);
-                            dataTarget.MemSetToZero();
+                    shuffleDownKernel(dimension, dataTarget.View);
 
-                            shuffleDownKernel(dimension, dataTarget.View);
-                            accelerator.Synchronize();
+                    // Reads data from the GPU buffer into a new CPU array.
+                    // Implicitly calls accelerator.DefaultStream.Synchronize() to ensure
+                    // that the kernel and memory copy are completed first.
+                    Console.WriteLine("Shuffle-down kernel");
+                    var target = dataTarget.GetAsArray1D();
+                    for (int i = 0, e = target.Length; i < e; ++i)
+                        Console.WriteLine($"Data[{i}] = {target[i]}");
+                }
 
-                            Console.WriteLine("Shuffle-down kernel");
-                            var target = dataTarget.GetAsArray();
-                            for (int i = 0, e = target.Length; i < e; ++i)
-                                Console.WriteLine($"Data[{i}] = {target[i]}");
-                        }
+                using (var dataTarget = accelerator.Allocate1D<ComplexStruct>(accelerator.WarpSize))
+                {
+                    // Load the explicitly grouped kernel
+                    var reduceKernel = accelerator.LoadStreamKernel<ArrayView<ComplexStruct>, ComplexStruct>(
+                        ShuffleGeneric);
+                    dataTarget.MemSetToZero();
 
-                        using (var dataTarget = accelerator.Allocate<ComplexStruct>(accelerator.WarpSize))
-                        {
-                            // Load the explicitly grouped kernel
-                            var reduceKernel = accelerator.LoadStreamKernel<ArrayView<ComplexStruct>, ComplexStruct>(
-                                ShuffleGeneric);
-                            dataTarget.MemSetToZero();
+                    reduceKernel(dimension, dataTarget.View, new ComplexStruct(2, 40.0f, 16.0));
 
-                            reduceKernel(dimension, dataTarget.View, new ComplexStruct(2, 40.0f, 16.0));
-                            accelerator.Synchronize();
-
-                            Console.WriteLine("Generic shuffle kernel");
-                            var target = dataTarget.GetAsArray();
-                            for (int i = 0, e = target.Length; i < e; ++i)
-                                Console.WriteLine($"Data[{i}] = {target[i]}");
-                        }
-                    }
+                    // Reads data from the GPU buffer into a new CPU array.
+                    // Implicitly calls accelerator.DefaultStream.Synchronize() to ensure
+                    // that the kernel and memory copy are completed first.
+                    Console.WriteLine("Generic shuffle kernel");
+                    var target = dataTarget.GetAsArray1D();
+                    for (int i = 0, e = target.Length; i < e; ++i)
+                        Console.WriteLine($"Data[{i}] = {target[i]}");
                 }
             }
         }

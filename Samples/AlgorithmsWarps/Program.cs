@@ -23,7 +23,7 @@ namespace AlgorithmsWarps
         /// An explicitly grouped kernel that uses high-level warp extensions.
         /// Use the available scan/reduce operations in the namespace ILGPU.Algorithms.ScanReduceOperations.
         /// </summary>
-        static void KernelWithWarpExtensions(ArrayView2D<int> data)
+        static void KernelWithWarpExtensions(ArrayView2D<int, Stride2D.DenseX> data)
         {
             var globalIndex = Grid.GlobalIndex.X;
 
@@ -45,33 +45,28 @@ namespace AlgorithmsWarps
 
         static void Main()
         {
-            using (var context = new Context())
+            // Create default context and enable algorithms library
+            using var context = Context.Create(builder => builder.Default().EnableAlgorithms());
+
+            // For each available device...
+            foreach (var device in context)
             {
-                // Enable algorithms library
-                context.EnableAlgorithms();
+                // Create the associated accelerator
+                using var accelerator = device.CreateAccelerator(context);
+                Console.WriteLine($"Performing operations on {accelerator}");
 
-                // For each available accelerator...
-                foreach (var acceleratorId in Accelerator.Accelerators)
+                var kernel = accelerator.LoadStreamKernel<ArrayView2D<int, Stride2D.DenseX>>(KernelWithWarpExtensions);
+                using var buffer = accelerator.Allocate2DDenseX<int>(new LongIndex2D(accelerator.WarpSize, 4));
+                kernel((1, buffer.IntExtent.X), buffer.View);
+
+                // Reads data from the GPU buffer into a new CPU array.
+                // Implicitly calls accelerator.DefaultStream.Synchronize() to ensure
+                // that the kernel and memory copy are completed first.
+                var data = buffer.GetAsArray2D();
+                for (int i = 0, e = data.GetLength(0); i < e; ++i)
                 {
-                    // Create the associated accelerator
-                    using (var accelerator = Accelerator.Create(context, acceleratorId))
-                    {
-                        Console.WriteLine($"Performing operations on {accelerator}");
-
-                        var kernel = accelerator.LoadStreamKernel<ArrayView2D<int>>(KernelWithWarpExtensions);
-                        using (var buffer = accelerator.Allocate<int>(accelerator.WarpSize, 4))
-                        {
-                            kernel((1, buffer.Width), buffer.View);
-                            accelerator.Synchronize();
-
-                            var data = buffer.GetAs2DArray();
-                            for (int i = 0, e = data.GetLength(0); i < e; ++i)
-                            {
-                                for (int j = 0, e2 = data.GetLength(1); j < e2; ++j)
-                                    Console.WriteLine($"Data[{i}, {j}] = {data[i, j]}");
-                            }
-                        }
-                    }
+                    for (int j = 0, e2 = data.GetLength(1); j < e2; ++j)
+                        Console.WriteLine($"Data[{i}, {j}] = {data[i, j]}");
                 }
             }
         }

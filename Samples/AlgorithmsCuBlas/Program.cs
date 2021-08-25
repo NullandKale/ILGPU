@@ -14,61 +14,53 @@ using ILGPU.Algorithms;
 using ILGPU.Runtime.Cuda;
 using System;
 
-namespace AlgorithmsReduce
+namespace AlgorithmsCuBlas
 {
     class Program
     {
         static void Main()
         {
             const int DataSize = 1024;
-            const CuBlasAPIVersion CuBlasVersion = CuBlasAPIVersion.V10;
 
-            using (var context = new Context())
+            using var context = Context.Create(builder => builder.Cuda().EnableAlgorithms());
+
+            // Check for Cuda support
+            foreach (var device in context.GetCudaDevices())
             {
-                // Enable algorithms library
-                context.EnableAlgorithms();
+                using var accelerator = device.CreateCudaAccelerator(context);
+                Console.WriteLine($"Performing operations on {accelerator}");
 
-                // Check for Cuda support
-                foreach (var acceleratorId in CudaAccelerator.CudaAccelerators)
+                var buf = accelerator.Allocate1D<float>(DataSize);
+                var buf2 = accelerator.Allocate1D<float>(DataSize);
+
+                accelerator.Initialize(accelerator.DefaultStream, buf.View, 1.0f);
+                accelerator.Initialize(accelerator.DefaultStream, buf2.View, 1.0f);
+
+                // Initialize the CuBlas library using manual pointer mode handling
+                // (default behavior)
+                using (var blas = new CuBlas(accelerator))
                 {
-                    using (var accelerator = new CudaAccelerator(context, acceleratorId))
-                    {
-                        Console.WriteLine($"Performing operations on {accelerator}");
-                        var buf = accelerator.Allocate<float>(DataSize);
-                        var buf2 = accelerator.Allocate<float>(DataSize);
+                    // Set pointer mode to Host to enable data transfer to CPU memory
+                    blas.PointerMode = CuBlasPointerMode.Host;
+                    float output = blas.Nrm2(buf.View);
 
-                        accelerator.Initialize(accelerator.DefaultStream, buf, 1.0f);
-                        accelerator.Initialize(accelerator.DefaultStream, buf2.View, 1.0f);
+                    // Set pointer mode to Device to enable data transfer to GPU memory
+                    blas.PointerMode = CuBlasPointerMode.Device;
+                    blas.Nrm2(buf.View, buf2.View);
 
-                        // Initialize the CuBlas library using manual pointer mode handling
-                        // (default behavior)
-                        using (var blas = new CuBlas(accelerator, CuBlasVersion))
-                        {
-                            // Set pointer mode to Host to enable data transfer to CPU memory
-                            blas.PointerMode = CuBlasPointerMode.Host;
-                            float output = blas.Nrm2(buf);
+                    // Use pointer mode scopes to recover the previous pointer mode
+                    using var scope = blas.BeginPointerScope(CuBlasPointerMode.Host);
+                    float output2 = blas.Nrm2(buf.View);
+                }
 
-                            // Set pointer mode to Device to enable data transfer to GPU memory
-                            blas.PointerMode = CuBlasPointerMode.Device;
-                            blas.Nrm2(buf, buf2);
+                // Initialize the CuBlas<T> library using custom pointer mode handlers
+                using (var blas = new CuBlas<CuBlasPointerModeHandlers.AutomaticMode>(accelerator))
+                {
+                    // Automatic transfer to host
+                    float output = blas.Nrm2(buf.View);
 
-                            // Use pointer mode scopes to recover the previous pointer mode
-                            using (var scope = blas.BeginPointerScope(CuBlasPointerMode.Host))
-                            {
-                                float output2 = blas.Nrm2(buf);
-                            }
-                        }
-
-                        // Initialize the CuBlas<T> library using custom pointer mode handlers
-                        using (var blas = new CuBlas<CuBlasPointerModeHandlers.AutomaticMode>(accelerator, CuBlasVersion))
-                        {
-                            // Automatic transfer to host
-                            float output = blas.Nrm2(buf);
-
-                            // Automatic transfer to device
-                            blas.Nrm2(buf, buf2);
-                        }
-                    }
+                    // Automatic transfer to device
+                    blas.Nrm2(buf.View, buf2.View);
                 }
             }
         }

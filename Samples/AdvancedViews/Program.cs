@@ -53,7 +53,7 @@ namespace AdvancedViews
         /// <param name="view">The target view.</param>
         /// <param name="comparisonValue">The comparison value to use.</param>
         static void MyKernel(
-            Index1 index,
+            Index1D index,
             ArrayView<int> elements,
             ArrayView<ComposedStructure> view,
             int comparisonValue)
@@ -61,8 +61,8 @@ namespace AdvancedViews
             var element = elements[index];
             if (element == comparisonValue)
             {
-                var baseView = view.GetVariableView(0);
-                var counterView = baseView.GetSubView<int>(ComposedStructure.ElementCounterOffset);
+                var baseView = view.VariableView(0);
+                var counterView = baseView.SubView<int>(ComposedStructure.ElementCounterOffset);
                 Atomic.Add(ref counterView.Value, 1);
             }
         }
@@ -73,38 +73,33 @@ namespace AdvancedViews
         static void Main()
         {
             // Create main context
-            using (var context = new Context())
+            using var context = Context.CreateDefault();
+
+            // For each available device...
+            foreach (var device in context)
             {
-                // For each available accelerator...
-                foreach (var acceleratorId in Accelerator.Accelerators)
-                {
-                    // Create default accelerator for the given accelerator id
-                    using (var accelerator = Accelerator.Create(context, acceleratorId))
-                    {
-                        Console.WriteLine($"Performing operations on {accelerator}");
-                        var kernel = accelerator.LoadAutoGroupedStreamKernel<
-                            Index1, ArrayView<int>, ArrayView<ComposedStructure>, int>(MyKernel);
+                // Create accelerator for the given device
+                using var accelerator = device.CreateAccelerator(context);
+                Console.WriteLine($"Performing operations on {accelerator}");
 
-                        using (var elementsBuffer = accelerator.Allocate<int>(1024))
-                        {
-                            using (var composedStructBuffer = accelerator.Allocate<ComposedStructure>(1))
-                            {
-                                elementsBuffer.MemSetToZero();
-                                composedStructBuffer.MemSetToZero();
+                var kernel = accelerator.LoadAutoGroupedStreamKernel<
+                    Index1D, ArrayView<int>, ArrayView<ComposedStructure>, int>(MyKernel);
 
-                                kernel(elementsBuffer.Length, elementsBuffer.View, composedStructBuffer.View, 0);
+                using var elementsBuffer = accelerator.Allocate1D<int>(1024);
+                using var composedStructBuffer = accelerator.Allocate1D<ComposedStructure>(1);
+                elementsBuffer.MemSetToZero();
+                composedStructBuffer.MemSetToZero();
 
-                                accelerator.Synchronize();
+                kernel((int)elementsBuffer.Length, elementsBuffer.View, composedStructBuffer.View, 0);
 
-                                var results = composedStructBuffer.GetAsArray();
-                                ComposedStructure composedResult = results[0];
-                                Console.WriteLine("Composed.SomeElement = " + composedResult.SomeElement);
-                                Console.WriteLine("Composed.SomeOtherElement = " + composedResult.SomeOtherElement);
-                                Console.WriteLine("Composed.ElementCounter = " + composedResult.ElementCounter);
-                            }
-                        }
-                    }
-                }
+                // Reads data from the GPU buffer into a new CPU array.
+                // Implicitly calls accelerator.DefaultStream.Synchronize() to ensure
+                // that the kernel and memory copy are completed first.
+                var results = composedStructBuffer.GetAsArray1D();
+                ComposedStructure composedResult = results[0];
+                Console.WriteLine("Composed.SomeElement = " + composedResult.SomeElement);
+                Console.WriteLine("Composed.SomeOtherElement = " + composedResult.SomeOtherElement);
+                Console.WriteLine("Composed.ElementCounter = " + composedResult.ElementCounter);
             }
         }
     }

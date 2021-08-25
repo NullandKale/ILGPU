@@ -68,35 +68,32 @@ namespace SharedMemory
         static void ExecuteSample<TSharedAllocationSize>(Context context)
             where TSharedAllocationSize : struct, ISharedAllocationSize
         {
-            // For each available accelerator...
-            foreach (var acceleratorId in Accelerator.Accelerators)
+            // For each available device...
+            foreach (var device in context)
             {
-                // Create default accelerator for the given accelerator id
-                using (var accelerator = Accelerator.Create(context, acceleratorId))
-                {
-                    Console.WriteLine($"Performing operations on {accelerator}");
+                // Create accelerator for the given device
+                using var accelerator = device.CreateAccelerator(context);
+                Console.WriteLine($"Performing operations on {accelerator}");
 
-                    using (var dataTarget = accelerator.Allocate<int>(accelerator.MaxNumThreadsPerGroup))
-                    {
-                        // Load a specialized shared-memory kernel
-                        var sharedMemoryKernel = accelerator.LoadStreamKernel<
-                            ArrayView<int>>(SharedMemoryKernel<TSharedAllocationSize>);
-                        dataTarget.MemSetToZero();
+                using var dataTarget = accelerator.Allocate1D<int>(accelerator.MaxNumThreadsPerGroup);
+                // Load a specialized shared-memory kernel
+                var sharedMemoryKernel = accelerator.LoadStreamKernel<
+                    ArrayView<int>>(SharedMemoryKernel<TSharedAllocationSize>);
+                dataTarget.MemSetToZero();
 
-                        // Note that shared memory cannot be accessed from the outside
-                        // and must be initialized by the kernel
-                        sharedMemoryKernel(
-                            (1, accelerator.MaxNumThreadsPerGroup),
-                            dataTarget.View);
+                // Note that shared memory cannot be accessed from the outside
+                // and must be initialized by the kernel
+                sharedMemoryKernel(
+                    (1, accelerator.MaxNumThreadsPerGroup),
+                    dataTarget.View);
 
-                        accelerator.Synchronize();
-
-                        Console.WriteLine("Shared-memory kernel");
-                        var target = dataTarget.GetAsArray();
-                        for (int i = 0, e = target.Length; i < e; ++i)
-                            Console.WriteLine($"Data[{i}] = {target[i]}");
-                    }
-                }
+                // Reads data from the GPU buffer into a new CPU array.
+                // Implicitly calls accelerator.DefaultStream.Synchronize() to ensure
+                // that the kernel and memory copy are completed first.
+                Console.WriteLine("Shared-memory kernel");
+                var target = dataTarget.GetAsArray1D();
+                for (int i = 0, e = target.Length; i < e; ++i)
+                    Console.WriteLine($"Data[{i}] = {target[i]}");
             }
         }
 
@@ -106,11 +103,9 @@ namespace SharedMemory
         static void Main()
         {
             // Create main context
-            using (var context = new Context())
-            {
-                ExecuteSample<SharedArray32>(context);
-                ExecuteSample<SharedArray64>(context);
-            }
+            using var context = Context.CreateDefault();
+            ExecuteSample<SharedArray32>(context);
+            ExecuteSample<SharedArray64>(context);
         }
     }
 }

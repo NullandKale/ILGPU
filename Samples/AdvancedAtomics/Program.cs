@@ -58,7 +58,7 @@ namespace AdvancedAtomics
         /// <param name="dataView">The view pointing to our memory buffer.</param>
         /// <param name="value">The value to add.</param>
         static void AddDoubleAtomicKernel(
-            Index1 index,
+            Index1D index,
             ArrayView<double> dataView,
             double value)
         {
@@ -78,7 +78,7 @@ namespace AdvancedAtomics
         /// <param name="dataView">The view pointing to our memory buffer.</param>
         /// <param name="value">The value to add.</param>
         static void AddDoubleAtomicILGPUFunctionsKernel(
-            Index1 index,
+            Index1D index,
             ArrayView<double> dataView,
             double value)
         {
@@ -97,7 +97,7 @@ namespace AdvancedAtomics
         /// <param name="dataView">The view pointing to our memory buffer.</param>
         /// <param name="value">The value to add.</param>
         static void AddDoubleBuiltInKernel(
-            Index1 index,
+            Index1D index,
             ArrayView<double> dataView,
             double value)
         {
@@ -107,24 +107,22 @@ namespace AdvancedAtomics
 
         static void LaunchKernel(
             Accelerator accelerator,
-            Action<Index1, ArrayView<double>, double> method)
+            Action<Index1D, ArrayView<double>, double> method)
         {
             Console.WriteLine("Launching: " + method.Method.Name);
 
             var kernel = accelerator.LoadAutoGroupedStreamKernel(method);
-            using (var buffer = accelerator.Allocate<double>(1))
-            {
-                buffer.MemSetToZero();
+            using var buffer = accelerator.Allocate1D<double>(1);
+            buffer.MemSetToZero();
 
-                kernel(1024, buffer.View, 2.0);
+            kernel(1024, buffer.View, 2.0);
 
-                // Wait for the kernel to finish...
-                accelerator.Synchronize();
-
-                var data = buffer.GetAsArray();
-                for (int i = 0, e = data.Length; i < e; ++i)
-                    Console.WriteLine($"Data[{i}] = {data[i]}");
-            }
+            // Reads data from the GPU buffer into a new CPU array.
+            // Implicitly calls accelerator.DefaultStream.Synchronize() to ensure
+            // that the kernel and memory copy are completed first.
+            var data = buffer.GetAsArray1D();
+            for (int i = 0, e = data.Length; i < e; ++i)
+                Console.WriteLine($"Data[{i}] = {data[i]}");
         }
 
         /// <summary>
@@ -134,21 +132,18 @@ namespace AdvancedAtomics
         static void Main()
         {
             // Create main context
-            using (var context = new Context())
-            {
-                // For each available accelerator...
-                foreach (var acceleratorId in Accelerator.Accelerators)
-                {
-                    // Create default accelerator for the given accelerator id
-                    using (var accelerator = Accelerator.Create(context, acceleratorId))
-                    {
-                        Console.WriteLine($"Performing operations on {accelerator}");
+            using var context = Context.CreateDefault();
 
-                        LaunchKernel(accelerator, AddDoubleAtomicKernel);
-                        LaunchKernel(accelerator, AddDoubleAtomicILGPUFunctionsKernel);
-                        LaunchKernel(accelerator, AddDoubleBuiltInKernel);
-                    }
-                }
+            // For each available device...
+            foreach (var device in context)
+            {
+                // Create accelerator for the given device
+                using var accelerator = device.CreateAccelerator(context);
+                Console.WriteLine($"Performing operations on {accelerator}");
+
+                LaunchKernel(accelerator, AddDoubleAtomicKernel);
+                LaunchKernel(accelerator, AddDoubleAtomicILGPUFunctionsKernel);
+                LaunchKernel(accelerator, AddDoubleBuiltInKernel);
             }
         }
     }
